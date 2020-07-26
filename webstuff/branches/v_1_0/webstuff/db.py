@@ -325,97 +325,97 @@ class EnginePoolError(Exception):
 
 class EnginePool(object):
 	"""Pool of engines to different databases with the same content.
-		One of databases is master which accepts inserts, others are slaves
+		One of databases is main which accepts inserts, others are subordinates
 		for reading only.
 		Use round robin mechanism with no priorities for selecting the right engine.
 	"""
-	def __init__(self, masterEngine = None, slaveEngines = []):
+	def __init__(self, mainEngine = None, subordinateEngines = []):
 		"""
 		"""
-		self._master = masterEngine
-		self._slaves = slaveEngines
-		self._lastSlaveId = -1
-		self._lastSlaveIdLock = thread.allocate_lock()
-		self._masterLock = thread.allocate_lock()
-		self._slaveLock = thread.allocate_lock()
+		self._main = mainEngine
+		self._subordinates = subordinateEngines
+		self._lastSubordinateId = -1
+		self._lastSubordinateIdLock = thread.allocate_lock()
+		self._mainLock = thread.allocate_lock()
+		self._subordinateLock = thread.allocate_lock()
 	
 	
-	def setMaster(self, master):
-		"""Assign master engine.
+	def setMain(self, main):
+		"""Assign main engine.
 			Input: (sqlalchemy.SQLEngine) sqlalchemy engine instance
 			Output: None
 		"""
-		self._masterLock.acquire()
-		self._master = master
-		self._masterLock.release()
+		self._mainLock.acquire()
+		self._main = main
+		self._mainLock.release()
 	
 	
-	def addSlave(self, slave):
-		"""Add new slave engine instance.
+	def addSubordinate(self, subordinate):
+		"""Add new subordinate engine instance.
 			Input: (sqlalchemy.SQLEngine) sqlalchemy engine instance
 			Output: None
 		"""
-		self._slaveLock.acquire()
-		self._slaves.append(slave)
-		self._slaveLock.release()
+		self._subordinateLock.acquire()
+		self._subordinates.append(subordinate)
+		self._subordinateLock.release()
 	
 	
-	def getMaster(self):
-		"""Get master engine if it is set. If master engine is not set up
+	def getMain(self):
+		"""Get main engine if it is set. If main engine is not set up
 			properly (is None) then raises an exception
 			Input: None
 			Output: (sqlalchemy.SQLEngine) sqlalchemy engine instance
 		"""
-		self._masterLock.acquire()
-		if self._master is not None:
-			ret = self._master
-			self._masterLock.release()
+		self._mainLock.acquire()
+		if self._main is not None:
+			ret = self._main
+			self._mainLock.release()
 			return ret
 		else:
-			self._masterLock.release()
-			raise EnginePoolError('Master database engine not set')
+			self._mainLock.release()
+			raise EnginePoolError('Main database engine not set')
 	
 	
-	def getSlave(self, id = None):
-		"""Get slave engine if any are set up. If list of slave engines is empty
+	def getSubordinate(self, id = None):
+		"""Get subordinate engine if any are set up. If list of subordinate engines is empty
 			then raises an exception.
 			Input: (int) engine id (optional)
 			Output: (sqlalchemy.SQLEngine) sqlalchemy engine instance
 		"""
-		self._slaveLock.acquire()
-		# raise exception if slave list is empty
-		if not self._slaves:
-			self._slaveLock.release()
-			raise EnginePoolError('Slave database engines not set')
+		self._subordinateLock.acquire()
+		# raise exception if subordinate list is empty
+		if not self._subordinates:
+			self._subordinateLock.release()
+			raise EnginePoolError('Subordinate database engines not set')
 		# try to return specified engine
 		if id is not None:
 			try:
-				ret = self._slaves[id]
-				self._slaveLock.release()
+				ret = self._subordinates[id]
+				self._subordinateLock.release()
 				return ret
 			except IndexError:
-				self._slaveLock.release()
-				raise EnginePoolError('Slave connection with id: %s doesn\'t exist')
+				self._subordinateLock.release()
+				raise EnginePoolError('Subordinate connection with id: %s doesn\'t exist')
 			except:
-				self._slaveLock.release()
+				self._subordinateLock.release()
 				raise
 		
-		# get slave engine id for round robin
-		self._lastSlaveIdLock.acquire()
-		if self._lastSlaveId >= len(self._slaves) - 1:
-			self._lastSlaveId = 0
+		# get subordinate engine id for round robin
+		self._lastSubordinateIdLock.acquire()
+		if self._lastSubordinateId >= len(self._subordinates) - 1:
+			self._lastSubordinateId = 0
 		else:
-			self._lastSlaveId += 1
-		id = self._lastSlaveId
-		self._lastSlaveIdLock.release()
+			self._lastSubordinateId += 1
+		id = self._lastSubordinateId
+		self._lastSubordinateIdLock.release()
 		
 		# return engine instance using round robin 
 		try:
-			ret = self._slaves[id]
-			self._slaveLock.release()
+			ret = self._subordinates[id]
+			self._subordinateLock.release()
 			return ret
 		except:
-			self._slaveLock.release()
+			self._subordinateLock.release()
 			raise
 
 
@@ -467,29 +467,29 @@ def getEngine(name = None, **params):
 
 
 
-def getEnginePool(name = None, engineConfig = [], addSlaveAutomagically = True):
+def getEnginePool(name = None, engineConfig = [], addSubordinateAutomagically = True):
 	"""Get database engine pool. Use this pool for advanced scaling needs.
 		Input: (string) engine name;
 			(list) list of dictionaries wich consist of all neccessary
 				parameters for createEngine(). The first element in list is
-				always considered as configuration for master database;
-			(bool) enable/disable hack for adding slave db config entry
-				automatically when there is only master db config available
+				always considered as configuration for main database;
+			(bool) enable/disable hack for adding subordinate db config entry
+				automatically when there is only main db config available
 	"""
 	debug ('Looking for DB engine pool with name: %s' % name)
 	try:
 		return enginePools[name]
 	except KeyError:
-		# HACK!!! Add entry for slave db config if only master config is given.
-		if addSlaveAutomagically and len(engineConfig) == 1:
+		# HACK!!! Add entry for subordinate db config if only main config is given.
+		if addSubordinateAutomagically and len(engineConfig) == 1:
 			engineConfig.append(engineConfig[0])
 		# create neccessary engine instances
 		engines = []
 		for attrs in engineConfig:
 			engines.append(createEngine(**attrs))
-		masterEngine = engines.pop(0)
-		engPool = EnginePool(masterEngine = masterEngine,
-			slaveEngines = engines)
+		mainEngine = engines.pop(0)
+		engPool = EnginePool(mainEngine = mainEngine,
+			subordinateEngines = engines)
 		enginePools[name] = engPool
 		return engPool
 
@@ -535,14 +535,14 @@ def getTablePrefix():
 
 
 def getTable(name, engineName = None, tableName = None,
-	hasPrefix = None, engine = None, useMasterEngine = False):
+	hasPrefix = None, engine = None, useMainEngine = False):
 	"""Get a Table object from database engine.
 		Input: (string) table name;
 			(string) engine name;
 			(string) table name in DB;
 			(bool) True table name has prefix, False - table name has no prefix;
 			(sqlalchemy.SQLEngine) engine instance;
-			(bool) set to true to use master engine from engine pool;
+			(bool) set to true to use main engine from engine pool;
 		Output: (sqlalchemy.Table) table instance
 	"""
 	if not hasDbaccess:
@@ -552,9 +552,9 @@ def getTable(name, engineName = None, tableName = None,
 		engine = getEngine(engineName)
 		# get engine instance from engine pool
 		if isinstance(engine, EnginePool):
-			if useMasterEngine:
-				engine = engine.getMaster()
+			if useMainEngine:
+				engine = engine.getMain()
 			else:
-				engine = engine.getSlave()
+				engine = engine.getSubordinate()
 	table = engine.getTable(name, tableName, hasPrefix)
 	return table
